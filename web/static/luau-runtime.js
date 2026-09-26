@@ -85,6 +85,37 @@
       mod._luauReset();
 
       return { ok: status === 0, output: output, error: error };
+    },
+
+    /**
+     * What `luau-ast <file>` prints: the AST as JSON.
+     * @returns {{code: number, output: string, error: string}}
+     *          `code` is non-zero when the source had parse errors, which are
+     *          in `error` - the same split the real binary uses.
+     */
+    ast: function (source) {
+      if (!mod) throw new Error("Luau runtime not loaded yet");
+      var src = toLatin1Bytes(source);
+      var ptr = mod._malloc(src.length + 1);
+      mod.HEAPU8.set(src, ptr);
+      mod.HEAPU8[ptr + src.length] = 0;
+
+      var code;
+      try {
+        code = mod._luauAst(ptr, src.length);
+      } finally {
+        mod._free(ptr);
+      }
+
+      var outPtr = mod._luauOutput();
+      var outLen = mod._luauOutputSize();
+      var output = outLen > 0
+        ? fromLatin1Bytes(mod.HEAPU8.subarray(outPtr, outPtr + outLen))
+        : "";
+      var error = mod.UTF8ToString(mod._luauError());
+      mod._luauReset();
+
+      return { code: code, output: output, error: error };
     }
   };
 

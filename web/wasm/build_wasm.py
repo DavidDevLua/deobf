@@ -15,6 +15,7 @@ pipeline's:
 Needs emscripten (emcc) and git.
 """
 import argparse
+import multiprocessing
 import os
 import shutil
 import subprocess
@@ -64,6 +65,13 @@ def patch_writestring(src):
         f.write(text.replace(WRITE_HOOK_OLD, WRITE_HOOK_NEW))
 
 
+def includes(src):
+    out = []
+    for part in ("VM", "Compiler", "Ast", "Bytecode", "Analysis", "Common"):
+        out += ["-I" + os.path.join(src, part, "include")]
+    return out + ["-I" + os.path.join(src, "VM", "src")]
+
+
 def sources(src):
     """Every .cpp of the VM, compiler, AST and bytecode builder.
 
@@ -74,7 +82,17 @@ def sources(src):
     for part in ("VM", "Compiler", "Ast", "Bytecode", "Common"):
         d = os.path.join(src, part, "src")
         out += [os.path.join(d, f) for f in sorted(os.listdir(d)) if f.endswith(".cpp")]
+    # the only Analysis file needed: luau-ast's JSON printer (no type checking)
+    out.append(os.path.join(src, "Analysis", "src", "AstJsonEncoder.cpp"))
     return out
+
+
+def compile_one(job):
+    """One .cpp -> .o. Top level so multiprocessing can pickle it."""
+    cpp, obj, flags = job
+    r = subprocess.run(["em++", "-c", cpp, "-o", obj] + flags,
+                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    return cpp, r.returncode, r.stdout.decode("utf-8", "replace")
 
 
 def main():
@@ -100,11 +118,24 @@ def main():
     os.makedirs(OUT, exist_ok=True)
     target = os.path.join(OUT, "luau-wasm.js")
 
-    cmd = ["em++", "-std=c++17", "-O3" if not args.debug else "-O0",
-           os.path.join(HERE, "luau_web.cpp")] + sources(src)
-    for part in ("VM", "Compiler", "Ast", "Bytecode", "Common"):
-        cmd += ["-I" + os.path.join(src, part, "include")]
-    cmd += ["-I" + os.path.join(src, "VM", "src")]
+    # one em++ call per file, in parallel: passing all ~60 at once compiles them
+    # one after another and takes about ten minutes
+    objdir = tempfile.mkdtemp(prefix="luau-wasm-obj-")
+    cflags = ["-std=c++17", "-O3" if not args.debug else "-O0"] + includes(src)
+    jobs = []
+    for i, cpp in enumerate([os.path.join(HERE, "luau_web.cpp")] + sources(src)):
+        obj = os.path.join(objdir, "%02d_%s.o" % (i, os.path.basename(cpp)[:-4]))
+        jobs.append((cpp, obj, cflags))
+
+    print("[*] compiling %d files on %d cores" % (len(jobs), multiprocessing.cpu_count()),
+          file=sys.stderr)
+    with multiprocessing.Pool(multiprocessing.cpu_count()) as pool:
+        for cpp, code, log in pool.imap_unordered(compile_one, jobs):
+            if code != 0:
+                print(log, file=sys.stderr)
+                sys.exit("[!] failed to compile " + cpp)
+
+    cmd = ["em++", "-O3" if not args.debug else "-O0"] + [j[1] for j in jobs]
     cmd += [
         "-s", "WASM=1",
         "-s", "MODULARIZE=1",
@@ -118,7 +149,8 @@ def main():
         # 3.1.27 and still accepts this one.
         "-s", "TOTAL_STACK=16MB",
         "-s", "EXPORTED_FUNCTIONS=" +
-              "['_luauRun','_luauOutput','_luauOutputSize','_luauError','_luauReset','_malloc','_free']",
+              "['_luauRun','_luauAst','_luauOutput','_luauOutputSize','_luauError','_luauReset',"
+              "'_malloc','_free']",
         "-s", "EXPORTED_RUNTIME_METHODS=['ccall','cwrap','HEAPU8','stringToUTF8','lengthBytesUTF8','UTF8ToString']",
         # one file: GitHub Pages serves it from any path without MIME surprises
         "-s", "SINGLE_FILE=1",
@@ -129,6 +161,7 @@ def main():
     run(cmd)
     print("[+] wrote %s (%.1f MB)" % (target, os.path.getsize(target) / 1e6), file=sys.stderr)
 
+    shutil.rmtree(objdir, ignore_errors=True)
     if tmp:
         shutil.rmtree(tmp, ignore_errors=True)
 

@@ -15,6 +15,11 @@
 #include "lualib.h"
 #include "luacode.h"
 #include "Luau/Compiler.h"
+#include "Luau/Ast.h"
+#include "Luau/AstJsonEncoder.h"
+#include "Luau/Parser.h"
+#include "Luau/ParseOptions.h"
+#include "Luau/Common.h"
 
 #include <string>
 #include <string.h>
@@ -23,12 +28,37 @@
 // set by the VM patch in lbaselib.cpp (see build_wasm.py)
 extern "C" void (*luau_writestring_hook)(const char* s, size_t l);
 
+// AstJsonEncoder.cpp reads this flag, but the variable itself is defined in
+// ConstraintGenerator.cpp - the whole type checker, which this build has no
+// other reason to link. Defining it here keeps the dependency out; the value
+// matches the native binaries, where setLuauFlagsDefault() only turns on
+// flags whose name starts with "Luau" (this one starts with "Debug").
+LUAU_FASTFLAGVARIABLE(DebugLuauIfLocalAnalysis)
+
+// CLI/src/Flags.cpp setLuauFlagsDefault(), which every native Luau binary
+// runs at startup: without it the VM and compiler behave like an older Luau
+// and traces drift from the ones deob.py produces.
+static void setLuauFlagsDefault()
+{
+    for (Luau::FValue<bool>* flag = Luau::FValue<bool>::list; flag; flag = flag->next)
+        if (strncmp(flag->name, "Luau", 4) == 0)
+            flag->value = true;
+}
+
 static std::string g_output;
 static std::string g_error;
 
 static void captureWrite(const char* s, size_t l)
 {
     g_output.append(s, l);
+}
+
+// Analysis/src/ToString.cpp toString(Location, 0, true), copied rather than
+// linked: that file is the type checker's printer and drags all of Analysis in
+static std::string locationString(const Luau::Location& location)
+{
+    return "(" + std::to_string(location.begin.line) + ", " + std::to_string(location.begin.column) +
+           ") - (" + std::to_string(location.end.line) + ", " + std::to_string(location.end.column) + ")";
 }
 
 static Luau::CompileOptions copts()
@@ -106,6 +136,7 @@ extern "C" {
 // a usable trace). Read it with luauOutput/luauOutputSize.
 int luauRun(const char* source, int sourceLen, const char* chunkname)
 {
+    setLuauFlagsDefault();
     g_output.clear();
     g_error.clear();
     luau_writestring_hook = captureWrite;
@@ -150,6 +181,40 @@ int luauRun(const char* source, int sourceLen, const char* chunkname)
     lua_close(GL);
     luau_writestring_hook = nullptr;
     return status == 0 ? 0 : 1;
+}
+
+// The luau-ast CLI: parse `source` and print its AST as JSON. Mirrors
+// CLI/src/Ast.cpp, including sending parse errors to the error channel and
+// reporting them as a non-zero status, because luauast.parse() runs the real
+// binary with check=True and reads stdout alone.
+int luauAst(const char* source, int sourceLen)
+{
+    setLuauFlagsDefault();
+    g_output.clear();
+    g_error.clear();
+
+    Luau::Allocator allocator;
+    Luau::AstNameTable names(allocator);
+
+    Luau::ParseOptions options;
+    options.captureComments = true;
+    options.allowDeclarationSyntax = true;
+
+    Luau::ParseResult parseResult =
+        Luau::Parser::parse(source, (size_t)sourceLen, names, allocator, std::move(options));
+
+    if (!parseResult.errors.empty())
+    {
+        g_error = "Parse errors were encountered:\n";
+        for (const Luau::ParseError& error : parseResult.errors)
+        {
+            g_error += "  " + locationString(error.getLocation()) + " - " + error.getMessage() + "\n";
+        }
+        g_error += "\n";
+    }
+
+    g_output = Luau::toJson(parseResult.root, parseResult.commentLocations);
+    return parseResult.errors.empty() ? 0 : 1;
 }
 
 const char* luauOutput()
