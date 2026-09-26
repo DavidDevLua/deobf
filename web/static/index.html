@@ -31,10 +31,13 @@
 </header>
 
 <div id="backend-panel" class="panel hidden">
-  <h2>Where is the deobfuscator running?</h2>
+  <h2>Where jobs run</h2>
   <p>
-    This page is just the interface. The pipeline runs a real Luau VM in a
-    subprocess, so it needs a server — start one yourself and point this page at it:
+    <strong>In this tab</strong> is the default and needs nothing: the Luau VM is
+    compiled to WebAssembly and the pipeline runs on Python in the page. The first
+    run downloads about 16&nbsp;MB and Python is slower here than native, so for a
+    big script you may prefer a local server, which runs the identical pipeline at
+    full speed:
   </p>
   <pre class="snippet"><code>git clone https://github.com/riftwarewtf/deobf
 cd deobf
@@ -46,11 +49,12 @@ python web/server.py                      # http://127.0.0.1:8000</code></pre>
     is fine, but a backend on another machine has to be HTTPS too — browsers block
     the mixed request otherwise.</p>
   <label class="field">
-    <span>Backend URL</span>
+    <span>Server URL</span>
     <input id="backend-url" type="url" placeholder="http://127.0.0.1:8000" spellcheck="false">
   </label>
   <div class="row">
-    <button id="backend-save" class="primary" type="button">Connect</button>
+    <button id="backend-save" class="primary" type="button">Use this server</button>
+    <button id="backend-browser" class="ghost" type="button">Run in this tab instead</button>
     <button id="backend-close" class="ghost" type="button">Close</button>
   </div>
   <p id="backend-error" class="error hidden"></p>
@@ -187,8 +191,9 @@ python web/server.py                      # http://127.0.0.1:8000</code></pre>
     <div class="out-body" data-out-body="code">
       <div id="empty" class="empty">
         <p>Nothing yet.</p>
-        <p class="muted">Pick a script and hit <strong>Deobfuscate</strong>. Big Luraph
-          scripts take a few minutes — the log tab shows what the pipeline is doing.</p>
+        <p class="muted">Pick a script and hit <strong>Deobfuscate</strong>. The first
+          run in this tab loads the Luau runtime and Python (~16&nbsp;MB, once); big
+          Luraph scripts take minutes — the log tab shows what the pipeline is doing.</p>
       </div>
       <div id="code-wrap" class="code-wrap hidden">
         <pre id="gutter" class="gutter" aria-hidden="true"></pre>
@@ -213,6 +218,7 @@ python web/server.py                      # http://127.0.0.1:8000</code></pre>
 </footer>
 
 <script src="luau.js"></script>
+<script src="engine.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

@@ -19,12 +19,19 @@ This repository is the pipeline plus a web front end for it.
 
 ---
 
-## Run the website
+## Use it
 
-The page is static, but the pipeline behind it is not: it spawns a real Luau
-VM per job, so it needs a machine to run on. Both come out of this repo.
+**<https://riftwarewtf.github.io/deobf/>** — paste a script, press Deobfuscate,
+read the Luau. Nothing to install and no server: Luau is compiled to
+WebAssembly and the pipeline runs on Python (Pyodide) inside the page. The
+first run downloads about 16 MB, then it is cached.
 
-### Docker (one command)
+The same repo also runs as a normal web service, which is worth it for big
+scripts: the browser does the identical work, but Python in the page is
+several times slower than native, and a large Luraph script can take minutes
+either way. The page has a switch for pointing at a server you run.
+
+### As a server — Docker (one command)
 
 ```bash
 git clone https://github.com/riftwarewtf/deobf
@@ -35,7 +42,7 @@ docker compose up --build        # http://localhost:8000
 The first build takes a few minutes — it compiles a patched Luau from source
 (see [Why a patched Luau](#why-a-patched-luau)). After that it starts instantly.
 
-### Without Docker
+### As a server — without Docker
 
 ```bash
 git clone https://github.com/riftwarewtf/deobf
@@ -49,16 +56,24 @@ Open the address, drop in a `.lua`/`.luau` file, hit **Deobfuscate**. The
 obfuscator is detected as soon as the script is loaded; the log tab streams
 what the pipeline is doing while it works.
 
-### The page on GitHub Pages
+### How the browser build works
 
-`web/static/` is plain HTML/CSS/JS with no build step, so the same interface
-can be served from GitHub Pages — it asks once for the URL of your server and
-remembers it. `.github/workflows/pages.yml` publishes it on every push to
-`main`; enable it under **Settings → Pages → Source: GitHub Actions**.
+`web/static/` has no build step and no third-party CDN, so GitHub Pages serves
+it as is. Two pieces make the pipeline run there:
 
-That split is deliberate: Pages can host the interface, never the pipeline.
-Only the interface is public; the scripts you feed it go to the backend you
-control.
+- **`web/wasm/`** builds Luau to WebAssembly (`build_wasm.py`), mirroring the
+  native CLI closely enough that the output is byte-identical — same compile
+  options, same sandboxing, and `loadstring`, which is a CLI addition rather
+  than part of Luau and which protected scripts use constantly.
+- **`web/browser/bootstrap.py`** patches the two places the pipeline reaches
+  for those binaries — `subprocess.run` and `harness._communicate` — and
+  routes them into that WebAssembly module. Everything above that seam is the
+  same code the CLI runs, unmodified.
+
+Your script never leaves the tab: there is nothing to upload to.
+
+`.github/workflows/pages.yml` publishes on every push. Enable it once under
+**Settings → Pages → Source: GitHub Actions**.
 
 ---
 
@@ -139,17 +154,20 @@ web/
   server.py       FastAPI app: upload, progress, result
   jobs.py         job queue; one deob.py subprocess per job
   smoke.py        end-to-end check against samples/
-  static/         the page (no build step, Pages-ready)
+  wasm/           Luau -> WebAssembly for the browser build
+  browser/        the Pyodide shim + the pipeline packer
+  static/         the page: engine.js picks browser or server
 samples/          test scripts + their expected output
 ```
 
 ## Notes
 
 - **It executes the script you give it.** That is the whole method — there is
-  no static mode. The Luau VM it runs in has no `io` library and no network,
-  the Roblox side is a fake, and the container runs as a non-root user, but
-  treat the backend as something that runs untrusted code and keep it
-  isolated. Only feed it scripts you are allowed to inspect.
+  no static mode. The Luau VM it runs in has no `io` library and no network
+  and the Roblox side is a fake, so in the browser the script is confined to
+  the tab's WebAssembly sandbox. If you run the server instead, treat it as
+  something that runs untrusted code and keep it isolated; the container runs
+  as a non-root user. Only feed it scripts you are allowed to inspect.
 - A trace only contains the branches that actually ran. Devirtualized output
   includes untaken branches; trace output notes conditions in comments.
 - Local names are inferred from use. The original names are not in the

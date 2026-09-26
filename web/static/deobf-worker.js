@@ -74,8 +74,12 @@ function boot() {
 async function detect(source) {
   const b = await boot();
   const res = b.detect(source);
-  const out = res.toJs ? Object.fromEntries(res.toJs()) : res;
-  if (res.destroy) res.destroy();
+  /* dict_converter so the dict arrives as a plain object: toJs() alone gives a
+     Map, and a Map is not what postMessage's receiver expects here */
+  const out = (res && res.toJs)
+    ? res.toJs({ dict_converter: Object.fromEntries })
+    : res;
+  if (res && res.destroy) res.destroy();
   return out;
 }
 

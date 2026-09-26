@@ -7,25 +7,21 @@
   "use strict";
 
   var $ = function (id) { return document.getElementById(id); };
-  var KEY = "deobf.backend";
+  var KEY = "deobf.backend";       // a server URL, when one was chosen
   var STAGES = ["detect", "trace", "lift", "polish", "done"];
   var PCT = { queued: 3, starting: 6, detect: 12, trace: 30, rerun: 45, lift: 65, polish: 88, done: 100 };
 
   var state = {
-    base: null,          // API origin ("" = same origin)
+    engine: null,        // Engines.Browser or Engines.Server
     source: null,        // script text
     name: null,
     health: null,
-    job: null,
-    stream: null,
-    poll: null,
+    running: false,
     ticker: null,
     detectSeq: 0
   };
 
   /* ------------------------------------------------------------ utilities */
-
-  function api(path) { return (state.base || "") + path; }
 
   function bytes(n) {
     if (n < 1024) return n + " B";
@@ -40,61 +36,48 @@
     show(el, !!message);
   }
 
-  async function request(path, init) {
-    var res = await fetch(api(path), init);
-    var text = await res.text();
-    var data = null;
-    try { data = text ? JSON.parse(text) : null; } catch (e) { /* plain text */ }
-    if (!res.ok) {
-      var msg = (data && (data.detail || data.message)) || text || ("HTTP " + res.status);
-      throw new Error(typeof msg === "string" ? msg : JSON.stringify(msg));
-    }
-    return data !== null ? data : text;
-  }
-
-  /* -------------------------------------------------------------- backend */
+  /* -------------------------------------------------------------- engine */
 
   function setStatus(cls, text) {
-    var dot = $("status-dot");
-    dot.className = cls;
+    $("status-dot").className = cls;
     $("status-text").textContent = text;
   }
 
-  async function probe(base) {
-    var res = await fetch((base || "") + "/api/health", { cache: "no-store" });
-    if (!res.ok) throw new Error("HTTP " + res.status);
-    return await res.json();
+  function attach(engine) {
+    engine.onlog = logLine;
+    engine.onstatus = function (text) { $("progress-note").textContent = text; };
+    state.engine = engine;
+    return engine;
   }
 
   async function connect() {
     var stored = localStorage.getItem(KEY);
-    var tries = stored !== null ? [stored] : ["", location.origin];
-    setStatus("busy", "checking…");
-    for (var i = 0; i < tries.length; i++) {
+    setStatus("busy", "checking\u2026");
+
+    /* a stored server wins; then this page's own origin, which is a server
+       when web/server.py is what served the page; otherwise the tab itself */
+    var candidates = [];
+    if (stored !== null) candidates.push(new Engines.Server(stored));
+    else candidates.push(new Engines.Server(""));
+
+    for (var i = 0; i < candidates.length; i++) {
       try {
-        var health = await probe(tries[i]);
-        state.base = tries[i];
+        var health = await candidates[i].health();
         state.health = health;
-        onHealth(health);
-        return true;
-      } catch (e) { /* try the next candidate */ }
+        onHealth(attach(candidates[i]), health);
+        return;
+      } catch (e) { /* fall through to the browser engine */ }
     }
-    state.base = null;
-    setStatus("down", "no backend");
-    show($("backend-panel"), true);
-    $("backend-url").value = stored || "http://127.0.0.1:8000";
-    return false;
+    var browser = new Engines.Browser();
+    onHealth(attach(browser), await browser.health());
   }
 
-  function onHealth(health) {
-    var q = health.queue || {};
-    var busy = (q.running || 0) + (q.queued || 0);
-    setStatus(health.luau ? "up" : "busy",
-      health.luau ? (busy ? "ready · " + busy + " in flight" : "ready")
-                  : "luau missing");
-    if (!health.luau) {
+  function onHealth(engine, health) {
+    state.health = health;
+    setStatus("up", engine.name === "browser" ? "running in this tab" : "server");
+    if (health.luau === false) {
       fail($("submit-error"),
-        "The server is up but deobf/bin/luau is missing — run `python deobf/build_luau.py --portable` there.");
+        "That server has no Luau runtime \u2014 run `python deobf/build_luau.py --portable` there.");
     }
     var sel = $("opt-obfuscator");
     sel.innerHTML = '<option value="">auto-detect</option>';
@@ -150,19 +133,22 @@
   }
 
   function detect() {
-    if (!state.base && state.base !== "") return;
+    if (!state.engine) return;
     var seq = ++state.detectSeq;
-    var src = state.source;
-    request("/api/detect", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ source: src })
-    }).then(function (d) {
+    state.engine.detect(state.source).then(function (d) {
       if (seq !== state.detectSeq) return;       // a newer input won
       $("detected-label").textContent = d.label;
-      $("detected-conf").textContent = d.confidence === null ? "forced" : d.confidence.toFixed(2);
+      $("detected-conf").textContent =
+        (d.confidence === null || d.confidence === undefined) ? "forced" : Number(d.confidence).toFixed(2);
       show($("detected"), true);
-    }).catch(function () { /* detection is a nicety; the run detects again */ });
+    }).catch(function (e) {
+      /* detection is optional - the run detects again - but a failure here
+         means the engine itself is broken, and saying nothing leaves the page
+         looking idle forever */
+      if (seq !== state.detectSeq) return;
+      setStatus("down", "engine error");
+      fail($("submit-error"), "The deobfuscator could not start: " + e.message);
+    });
   }
 
   /* -------------------------------------------------------------- options */
@@ -185,8 +171,7 @@
   }
 
   function updateRun() {
-    var ready = !!state.source && (state.base || state.base === "") && !state.job;
-    $("run").disabled = !ready;
+    $("run").disabled = !(state.source && state.engine && !state.running);
   }
 
   /* ------------------------------------------------------------- the run */
@@ -240,9 +225,7 @@
     }, 100);
   }
 
-  function stopWatching() {
-    if (state.stream) { state.stream.close(); state.stream = null; }
-    if (state.poll) { clearInterval(state.poll); state.poll = null; }
+  function stopTicker() {
     if (state.ticker) { clearInterval(state.ticker); state.ticker = null; }
   }
 
@@ -256,96 +239,58 @@
     show($("progress"), true);
     $("copy").disabled = $("download").disabled = true;
     show($("cancel"), true);
+    state.running = true;
+    updateRun();
+    renderState({ status: "running", stage: "queued" });
     startTicker();
 
-    var info;
+    var engine = state.engine;
     try {
-      info = await request("/api/jobs", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ source: state.source, name: state.name, options: options() })
+      var res = await engine.run(state.source, state.name, options());
+      finish({
+        status: "done",
+        stage: "done",
+        text: res.text,
+        elapsed: (res.ms || 0) / 1000,
+        detected: res.detected || lastDetected(),
+        input_bytes: state.source.length
       });
-    } catch (e) {
-      stopWatching();
-      show($("progress"), false);
-      show($("cancel"), false);
-      show($("empty"), true);
-      fail($("submit-error"), e.message);
-      return;
-    }
-    state.job = info;
-    updateRun();
-    renderState(info);
-    watch(info.id);
-  }
-
-  function watch(id) {
-    var seen = 0;
-    var es;
-    try {
-      es = new EventSource(api("/api/jobs/" + id + "/events"));
-    } catch (e) {
-      es = null;
-    }
-    if (es) {
-      state.stream = es;
-      es.addEventListener("log", function (ev) {
-        var lines = JSON.parse(ev.data);
-        lines.forEach(logLine);
-        seen += lines.length;
+    } catch (err) {
+      finish({
+        status: /cancel/i.test(err.message) ? "cancelled" : "failed",
+        stage: "failed",
+        error: err.message,
+        elapsed: 0
       });
-      es.addEventListener("state", function (ev) { renderState(JSON.parse(ev.data)); });
-      es.addEventListener("end", function (ev) { finish(JSON.parse(ev.data)); });
-      es.onerror = function () {
-        /* the stream dropped (proxy, sleep, ...): fall back to polling */
-        es.close();
-        state.stream = null;
-        if (state.job) pollLoop(id, seen);
-      };
-    } else {
-      pollLoop(id, 0);
     }
   }
 
-  function pollLoop(id, seen) {
-    if (state.poll) clearInterval(state.poll);
-    state.poll = setInterval(async function () {
-      try {
-        var log = await request("/api/jobs/" + id + "/log?since=" + seen);
-        log.lines.forEach(logLine);
-        seen += log.lines.length;
-        var info = await request("/api/jobs/" + id);
-        renderState(info);
-        if (info.status !== "queued" && info.status !== "running") finish(info);
-      } catch (e) {
-        clearInterval(state.poll);
-        state.poll = null;
-        finish({ status: "failed", error: e.message, stage: "failed", elapsed: 0 });
-      }
-    }, 900);
+  function lastDetected() {
+    var el = $("detected-label").textContent;
+    return el || null;
   }
 
-  async function finish(info) {
-    stopWatching();
+  function finish(info) {
+    stopTicker();
     show($("cancel"), false);
-    state.job = null;
+    state.running = false;
     updateRun();
     renderState(info);
-    $("elapsed").textContent = (info.elapsed || 0).toFixed(1) + "s";
+    if (info.elapsed) $("elapsed").textContent = info.elapsed.toFixed(1) + "s";
 
     if (info.status !== "done") {
       show($("empty"), true);
       $("empty").innerHTML = "<p>" + (info.status === "cancelled" ? "Cancelled." : "No output.") +
         '</p><p class="muted"></p>';
       $("empty").querySelector(".muted").textContent =
-        info.error || "The pipeline finished without writing a result — the log tab has the detail.";
+        info.error || "The pipeline finished without writing a result \u2014 the log tab has the detail.";
       selectOut("log");
       return;
     }
-
-    var code = await request("/api/jobs/" + info.id + "/result");
-    showResult(code, info);
+    info.result_bytes = info.text.length;
+    showResult(info.text, info);
   }
+
 
   function showResult(code, info) {
     var lines = code.split("\n");
@@ -446,9 +391,8 @@
 
     /* run / cancel */
     $("run").addEventListener("click", run);
-    $("cancel").addEventListener("click", async function () {
-      if (!state.job) return;
-      try { await request("/api/jobs/" + state.job.id, { method: "DELETE" }); } catch (e) { /* gone */ }
+    $("cancel").addEventListener("click", function () {
+      if (state.engine) state.engine.cancel();
     });
 
     /* result actions */
@@ -474,27 +418,34 @@
       var panel = $("backend-panel");
       show(panel, panel.classList.contains("hidden"));
       if (!panel.classList.contains("hidden")) {
-        $("backend-url").value = state.base || localStorage.getItem(KEY) || "http://127.0.0.1:8000";
+        $("backend-url").value = localStorage.getItem(KEY) || "http://127.0.0.1:8000";
       }
     });
     $("backend-close").addEventListener("click", function () { show($("backend-panel"), false); });
     $("backend-save").addEventListener("click", async function () {
       var url = $("backend-url").value.trim().replace(/\/+$/, "");
       fail($("backend-error"), "");
-      setStatus("busy", "connecting…");
+      setStatus("busy", "connecting\u2026");
+      var engine = new Engines.Server(url);
       try {
-        var health = await probe(url);
+        var health = await engine.health();
         localStorage.setItem(KEY, url);
-        state.base = url;
-        state.health = health;
-        onHealth(health);
+        onHealth(attach(engine), health);
         if (state.source) detect();
       } catch (e) {
-        setStatus("down", "no backend");
+        setStatus("up", "running in this tab");
         fail($("backend-error"),
-          "Could not reach " + (url || "this origin") + " — " + e.message +
+          "Could not reach " + (url || "this origin") + " \u2014 " + e.message +
           ". Is the server running, and does it allow this page's origin (DEOB_CORS_ORIGINS)?");
       }
+    });
+
+    $("backend-browser").addEventListener("click", async function () {
+      localStorage.removeItem(KEY);
+      fail($("backend-error"), "");
+      var engine = new Engines.Browser();
+      onHealth(attach(engine), await engine.health());
+      if (state.source) detect();
     });
   }
 
