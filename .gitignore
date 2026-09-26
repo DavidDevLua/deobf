@@ -1,0 +1,16 @@
+# the Luau runtime is built per machine (python deobf/build_luau.py --portable)
+deobf/bin/luau
+deobf/bin/luau-ast
+deobf/bin/*.exe
+
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# pipeline leftovers
+*.deobf.luau
+*.devirt.luau
+*.protos.json
+*.path2d
+.DS_Store

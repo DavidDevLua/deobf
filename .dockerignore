@@ -1,0 +1,12 @@
+.git
+.github
+**/__pycache__
+**/*.pyc
+deobf/bin/luau
+deobf/bin/luau-ast
+deobf/bin/*.exe
+samples/output
+*.md
+!CLAUDE.md
+!LURAPH.md
+!IRONBREW1.md

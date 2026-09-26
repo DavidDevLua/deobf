@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>deobf — Roblox Luau deobfuscator</title>
+<meta name="description" content="Upload a protected Roblox Luau script and get readable Luau back: Luraph v15 and IronBrew devirtualization, behaviour trace for everything else.">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="bar">
+  <div class="brand">
+    <svg class="mark" viewBox="0 0 32 32" aria-hidden="true">
+      <path d="M6 9h20M6 16h13M6 23h17" stroke-linecap="round"/>
+      <circle cx="25.5" cy="16" r="2.2" class="dot"/>
+    </svg>
+    <div>
+      <h1>deobf</h1>
+      <p>protected Roblox Luau in, readable Luau out</p>
+    </div>
+  </div>
+  <div class="bar-right">
+    <button id="backend-btn" class="pill" type="button" title="Backend settings">
+      <span id="status-dot" class="dot-idle"></span>
+      <span id="status-text">checking…</span>
+    </button>
+    <a class="pill ghost" id="repo-link" href="https://github.com/riftwarewtf/deobf" target="_blank" rel="noopener">source</a>
+  </div>
+</header>
+
+<div id="backend-panel" class="panel hidden">
+  <h2>Where is the deobfuscator running?</h2>
+  <p>
+    This page is just the interface. The pipeline runs a real Luau VM in a
+    subprocess, so it needs a server — start one yourself and point this page at it:
+  </p>
+  <pre class="snippet"><code>git clone https://github.com/riftwarewtf/deobf
+cd deobf
+python deobf/build_luau.py --portable     # once: builds the patched Luau
+pip install -r web/requirements.txt
+python web/server.py                      # http://127.0.0.1:8000</code></pre>
+  <p class="muted">Or with Docker: <code>docker compose up --build</code> — same address.</p>
+  <p class="muted">If this page is served over HTTPS, a <code>http://localhost</code> backend
+    is fine, but a backend on another machine has to be HTTPS too — browsers block
+    the mixed request otherwise.</p>
+  <label class="field">
+    <span>Backend URL</span>
+    <input id="backend-url" type="url" placeholder="http://127.0.0.1:8000" spellcheck="false">
+  </label>
+  <div class="row">
+    <button id="backend-save" class="primary" type="button">Connect</button>
+    <button id="backend-close" class="ghost" type="button">Close</button>
+  </div>
+  <p id="backend-error" class="error hidden"></p>
+</div>
+
+<main>
+ <div class="col">
+  <!-- ---------------------------------------------------------------- input -->
+  <section class="card" id="input-card">
+    <div class="card-head">
+      <h2>1 · Script</h2>
+      <div class="tabs" role="tablist">
+        <button class="tab active" data-tab="file" role="tab">Upload</button>
+        <button class="tab" data-tab="paste" role="tab">Paste</button>
+      </div>
+    </div>
+
+    <div class="tab-body" data-body="file">
+      <label id="drop" class="drop" for="file-input" tabindex="0">
+        <input id="file-input" type="file" accept=".lua,.luau,.txt,text/plain" hidden>
+        <svg viewBox="0 0 24 24" class="drop-icon" aria-hidden="true">
+          <path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M4 15v3a2 2 0 002 2h12a2 2 0 002-2v-3" stroke-linecap="round"/>
+        </svg>
+        <strong>Drop a .lua / .luau file</strong>
+        <span class="muted">or click to pick one</span>
+      </label>
+      <div id="file-chip" class="chip hidden">
+        <span id="file-name"></span>
+        <span id="file-size" class="muted"></span>
+        <button id="file-clear" class="x" type="button" aria-label="Remove file">×</button>
+      </div>
+    </div>
+
+    <div class="tab-body hidden" data-body="paste">
+      <textarea id="paste" spellcheck="false" placeholder="-- paste the obfuscated script here"></textarea>
+    </div>
+
+    <div id="detected" class="detected hidden">
+      <span class="label">detected</span>
+      <strong id="detected-label"></strong>
+      <span id="detected-conf" class="muted"></span>
+    </div>
+  </section>
+
+  <!-- -------------------------------------------------------------- options -->
+  <section class="card" id="options-card">
+    <div class="card-head"><h2>2 · Options</h2></div>
+
+    <div class="seg" role="radiogroup" aria-label="Mode">
+      <button class="seg-btn active" data-mode="devirt" role="radio" aria-checked="true">
+        <strong>Devirtualize</strong>
+        <span>lift the VM bytecode back to Luau — slower, includes branches that never ran</span>
+      </button>
+      <button class="seg-btn" data-mode="trace" role="radio" aria-checked="false">
+        <strong>Trace only</strong>
+        <span>fast: everything the script did to its environment, rendered as Luau</span>
+      </button>
+    </div>
+
+    <details class="adv">
+      <summary>Advanced</summary>
+      <div class="grid">
+        <label class="field">
+          <span>Obfuscator</span>
+          <select id="opt-obfuscator"><option value="">auto-detect</option></select>
+        </label>
+        <label class="field">
+          <span>Executor name <em>identifyexecutor()</em></span>
+          <input id="opt-executor" type="text" value="Wave" spellcheck="false">
+        </label>
+        <label class="field">
+          <span>Run timeout <em>seconds per run</em></span>
+          <input id="opt-timeout" type="number" min="10" max="1800" value="90">
+        </label>
+        <label class="field">
+          <span>Time budget <em>seconds for the traced script</em></span>
+          <input id="opt-budget" type="number" min="5" max="900" value="30">
+        </label>
+        <label class="field span2">
+          <span>TextBox contents <em>what typed-input branches see</em></span>
+          <input id="opt-input-text" type="text" spellcheck="false" placeholder="(empty)">
+        </label>
+        <label class="field span2">
+          <span>Runtime options <em>one KEY=VALUE per line, e.g. prelude=rawset(G,'webhook','x')</em></span>
+          <textarea id="opt-cfg" rows="3" spellcheck="false" placeholder="falsy=isPremium"></textarea>
+        </label>
+      </div>
+      <div class="checks">
+        <label><input type="checkbox" id="opt-strings"> dump every string the script builds</label>
+        <label><input type="checkbox" id="opt-no-fold"> don't fold repeats into helpers and loops</label>
+        <label><input type="checkbox" id="opt-keep-preamble"> keep the obfuscator's anti-tamper probes</label>
+        <label><input type="checkbox" id="opt-no-tidy"> raw trace (skip the readability pass)</label>
+      </div>
+    </details>
+
+    <div class="run-row">
+      <button id="run" class="primary big" type="button" disabled>Deobfuscate</button>
+      <button id="cancel" class="ghost hidden" type="button">Cancel</button>
+    </div>
+    <p id="submit-error" class="error hidden"></p>
+  </section>
+ </div>
+
+  <!-- --------------------------------------------------------------- output -->
+  <section class="card wide" id="output-card">
+    <div class="card-head">
+      <h2>3 · Result</h2>
+      <div class="tabs" role="tablist">
+        <button class="tab active" data-out="code" role="tab">Luau</button>
+        <button class="tab" data-out="log" role="tab">Log <span id="log-count" class="badge"></span></button>
+      </div>
+      <div class="out-actions">
+        <button id="copy" class="ghost small" type="button" disabled>Copy</button>
+        <button id="download" class="ghost small" type="button" disabled>Download</button>
+      </div>
+    </div>
+
+    <div id="progress" class="progress hidden">
+      <div class="stages">
+        <span class="stage" data-stage="detect">detect</span>
+        <span class="stage" data-stage="trace">trace</span>
+        <span class="stage" data-stage="lift">lift</span>
+        <span class="stage" data-stage="polish">polish</span>
+        <span class="stage" data-stage="done">done</span>
+      </div>
+      <div class="bar-track"><div id="bar-fill"></div></div>
+      <div class="progress-meta">
+        <span id="progress-note">queued…</span>
+        <span id="elapsed" class="muted mono">0.0s</span>
+      </div>
+    </div>
+
+    <div class="out-body" data-out-body="code">
+      <div id="empty" class="empty">
+        <p>Nothing yet.</p>
+        <p class="muted">Pick a script and hit <strong>Deobfuscate</strong>. Big Luraph
+          scripts take a few minutes — the log tab shows what the pipeline is doing.</p>
+      </div>
+      <div id="code-wrap" class="code-wrap hidden">
+        <pre id="gutter" class="gutter" aria-hidden="true"></pre>
+        <pre id="code" class="code"><code></code></pre>
+      </div>
+    </div>
+
+    <div class="out-body hidden" data-out-body="log">
+      <pre id="log" class="log"></pre>
+    </div>
+
+    <footer id="stats" class="stats hidden"></footer>
+  </section>
+</main>
+
+<footer class="foot">
+  <p>
+    Runs the script in a real Luau VM against a fake Roblox environment —
+    nothing touches the network or Roblox. Only feed it scripts you are
+    allowed to inspect.
+  </p>
+</footer>
+
+<script src="luau.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

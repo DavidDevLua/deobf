@@ -1,0 +1,96 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  compile:
+    name: byte-compile
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m compileall -q deobf web
+
+  pipeline:
+    name: samples end to end
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cache the patched Luau runtime
+        id: luau-cache
+        uses: actions/cache@v4
+        with:
+          path: deobf/bin
+          key: luau-${{ runner.os }}-${{ hashFiles('deobf/build_luau.py') }}
+
+      - name: Build Luau
+        if: steps.luau-cache.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build
+          python deobf/build_luau.py --portable
+
+      - name: Deobfuscate every sample and compare with the committed output
+        run: |
+          set -e
+          mkdir -p /tmp/got
+          fail=0
+          for want in samples/output/*.lua; do
+            name=$(basename "$want")
+            echo "::group::$name"
+            python deobf/deob.py "samples/$name" -o "/tmp/got/$name"
+            if diff -u "$want" "/tmp/got/$name"; then
+              echo "ok: $name"
+            else
+              echo "::error file=samples/output/$name::output changed for $name"
+              fail=1
+            fi
+            echo "::endgroup::"
+          done
+          exit $fail
+
+  web:
+    name: web front end
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cache the patched Luau runtime
+        id: luau-cache
+        uses: actions/cache@v4
+        with:
+          path: deobf/bin
+          key: luau-${{ runner.os }}-${{ hashFiles('deobf/build_luau.py') }}
+
+      - name: Build Luau
+        if: steps.luau-cache.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build
+          python deobf/build_luau.py --portable
+
+      - run: pip install -r web/requirements.txt
+
+      - name: Start the server and run a job through the API
+        run: |
+          python web/server.py &
+          for i in $(seq 1 30); do
+            curl -sf http://127.0.0.1:8000/api/health >/dev/null && break
+            sleep 1
+          done
+          python web/smoke.py

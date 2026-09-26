@@ -1,0 +1,19 @@
+services:
+  deobf:
+    build: .
+    image: deobf
+    ports:
+      - "8000:8000"
+    environment:
+      # see web/README.md for the full list
+      DEOB_CONCURRENCY: "2"        # jobs running at once
+      DEOB_JOB_TIMEOUT: "900"      # hard wall-clock cap per job, seconds
+      DEOB_MAX_UPLOAD: "12582912"  # 12 MB
+      DEOB_RESULT_TTL: "3600"      # how long a result stays fetchable
+      DEOB_CORS_ORIGINS: "*"       # tighten this if you publish the page elsewhere
+    restart: unless-stopped
+    # the pipeline runs untrusted Luau; keep the container boxed in
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 4g
+    pids_limit: 512
