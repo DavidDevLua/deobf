@@ -14,3 +14,7 @@ venv/
 *.protos.json
 *.path2d
 .DS_Store
+
+# web/static/luau-wasm.js is a build artifact but IS committed: GitHub Pages
+# serves the site straight from the repo, so it has to be here.
+# Rebuild it with: python web/wasm/build_wasm.py
