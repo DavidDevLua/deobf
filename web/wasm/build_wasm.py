@@ -116,12 +116,18 @@ def main():
     patch_writestring(src)
 
     os.makedirs(OUT, exist_ok=True)
-    target = os.path.join(OUT, "luau-wasm.js")
+    # an ES module: Pyodide needs a module worker, where importScripts
+    # does not exist, so everything the worker pulls in has to be importable
+    target = os.path.join(OUT, "luau-wasm.mjs")
 
     # one em++ call per file, in parallel: passing all ~60 at once compiles them
     # one after another and takes about ten minutes
     objdir = tempfile.mkdtemp(prefix="luau-wasm-obj-")
-    cflags = ["-std=c++17", "-O3" if not args.debug else "-O0"] + includes(src)
+    # -fexceptions: emcc defaults to -fignore-exceptions, under which Luau's
+    # internal throws (ParseError, CompileError) abort the module instead of
+    # being caught - a number gets thrown out to JS and the run dies
+    cflags = ["-std=c++17", "-fexceptions",
+              "-O3" if not args.debug else "-O0"] + includes(src)
     jobs = []
     for i, cpp in enumerate([os.path.join(HERE, "luau_web.cpp")] + sources(src)):
         obj = os.path.join(objdir, "%02d_%s.o" % (i, os.path.basename(cpp)[:-4]))
@@ -135,10 +141,11 @@ def main():
                 print(log, file=sys.stderr)
                 sys.exit("[!] failed to compile " + cpp)
 
-    cmd = ["em++", "-O3" if not args.debug else "-O0"] + [j[1] for j in jobs]
+    cmd = ["em++", "-fexceptions", "-O3" if not args.debug else "-O0"] + [j[1] for j in jobs]
     cmd += [
         "-s", "WASM=1",
         "-s", "MODULARIZE=1",
+        "-s", "EXPORT_ES6=1",
         "-s", "EXPORT_NAME=createLuau",
         "-s", "ENVIRONMENT=web,worker",
         "-s", "ALLOW_MEMORY_GROWTH=1",

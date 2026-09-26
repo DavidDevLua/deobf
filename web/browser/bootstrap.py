@@ -106,8 +106,22 @@ def install():
         return out.encode("latin-1", "replace"), err.encode("latin-1", "replace")
     harness._communicate = _communicate
 
-    # the long-lived REPL needs stdin and require(); its callers fall back
+    # The Luraph driver answers its constant rounds from one long-lived
+    # harness process, which needs stdin and require(). DEOB_NO_SERVE is its
+    # own switch for that: the driver then does a fresh run per round, which
+    # is what a browser can do. (Patching HarnessServer to raise is not enough
+    # - driver.lift() constructs it outside any try.)
+    os.environ["DEOB_NO_SERVE"] = "1"
     harness.HarnessServer = _popen
+
+    # backend.run_big_stack() runs the lifter in a thread with a 256 MB stack
+    # because deeply nested scripts recurse hard. There are no threads here, so
+    # call it directly - the worker asks Pyodide for a large stack instead.
+    import backend
+    def _big_stack(fn, *a):
+        sys.setrecursionlimit(200000)
+        return fn(*a)
+    backend.run_big_stack = _big_stack
 
     return len(os.listdir(ROOT))
 
