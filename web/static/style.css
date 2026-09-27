@@ -272,21 +272,35 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--a
 .empty .muted { max-width: 46ch; margin: 6px auto 0; font-size: 13px; }
 
 .code-wrap {
-  display: flex; max-height: min(68vh, 780px); overflow: auto;
+  position: relative; max-height: min(68vh, 780px); overflow: auto;
   border: 1px solid var(--line); border-radius: 10px; background: #080a0e;
 }
+/* full scroll height, so the scrollbar matches the whole output */
+#code-sizer { position: relative; width: max-content; min-width: 100%; }
+/* the slice that is actually rendered, moved into place */
+#code-window { position: absolute; top: 0; left: 0; display: flex; }
+
 .gutter, .code {
-  margin: 0; padding: 14px 0; font-size: 12.5px; line-height: 1.62;
+  margin: 0; padding: 0; font-size: 12.5px;
+  /* an exact pixel line height: the scroller maps scrollTop to a line number,
+     and a unitless multiplier rounds differently per browser */
+  line-height: 20px;
   font-family: var(--mono); tab-size: 4;
 }
 .gutter {
   padding-left: 14px; padding-right: 12px; flex: none;
   text-align: right; color: #3f4759; user-select: none;
   border-right: 1px solid var(--line); background: #0a0c11;
-  position: sticky; left: 0;
+  position: sticky; left: 0; z-index: 1;
 }
-.code { padding-left: 14px; padding-right: 18px; flex: 1; min-width: 0; }
+.code { padding-left: 14px; padding-right: 18px; flex: 1 0 auto; }
 .code code { white-space: pre; display: block; }
+
+/* off-screen, only to measure the monospace cell */
+#code-probe {
+  position: absolute; visibility: hidden; pointer-events: none;
+  white-space: pre; font-family: var(--mono); font-size: 12.5px; line-height: 20px;
+}
 
 .log {
   margin: 0; padding: 14px; max-height: min(68vh, 780px); overflow: auto;

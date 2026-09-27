@@ -196,9 +196,16 @@ python web/server.py                      # http://127.0.0.1:8000</code></pre>
           Luraph scripts take minutes — the log tab shows what the pipeline is doing.</p>
       </div>
       <div id="code-wrap" class="code-wrap hidden">
-        <pre id="gutter" class="gutter" aria-hidden="true"></pre>
-        <pre id="code" class="code"><code></code></pre>
+        <!-- only the lines on screen are in the DOM; #code-sizer holds the
+             full scroll height (see renderWindow in app.js) -->
+        <div id="code-sizer">
+          <div id="code-window">
+            <pre id="gutter" class="gutter" aria-hidden="true"></pre>
+            <pre id="code" class="code"><code></code></pre>
+          </div>
+        </div>
       </div>
+      <div id="code-probe" aria-hidden="true">0123456789</div>
     </div>
 
     <div class="out-body hidden" data-out-body="log">

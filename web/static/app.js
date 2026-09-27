@@ -201,7 +201,15 @@
     stageClass(info.stage);
   }
 
+  var MAX_LOG = 4000;       // a long Luraph run reports thousands of rounds
+
   function logLine(line) {
+    var log0 = $("log");
+    if (log0.childElementCount >= MAX_LOG) {
+      /* drop the oldest rather than the newest: the tail is what matters when
+         something goes wrong */
+      log0.removeChild(log0.firstChild);
+    }
     var cls = line.startsWith("[*]") ? "l-info"
       : line.startsWith("[+]") ? "l-ok"
       : line.startsWith("[!]") ? "l-warn"
@@ -292,20 +300,103 @@
   }
 
 
+  /* --------------------------------------------------- the result viewer
+
+     A finished trace can be millions of lines. Putting all of it in the DOM
+     is what used to kill the tab - 200k lines came to 1.37M nodes and took
+     twelve seconds to scroll - so only the lines on screen are rendered, and
+     #code-sizer carries the full height so the scrollbar still means what it
+     says. */
+
+  var PAD = 12;             // breathing room above the first line, in px
+  var OVERSCAN = 30;        // lines kept rendered beyond the viewport
+
+  var view = {
+    text: "",
+    prep: null,             // line offsets + the state each line starts in
+    lineH: 20,              // must match .gutter/.code line-height
+    charW: 7.5,
+    first: -1,
+    last: -1,
+    queued: false
+  };
+
+  function measureCell() {
+    var probe = $("code-probe");
+    if (!probe) return;
+    var r = probe.getBoundingClientRect();
+    if (r.width > 0) view.charW = r.width / probe.textContent.length;
+    if (r.height > 0) view.lineH = r.height;
+  }
+
+  /* Widest line in columns, for the scroller's width. The output indents with
+     tabs, which occupy four columns each, so a leading run of them counts for
+     more than its length. */
+  function longestLine(prep) {
+    var text = view.text, max = 0;
+    for (var i = 0; i < prep.lines; i++) {
+      var from = prep.starts[i];
+      var to = (i + 1 < prep.starts.length ? prep.starts[i + 1] : text.length);
+      var width = to - from;
+      for (var j = from; j < to && text.charCodeAt(j) === 9; j++) width += 3;
+      if (width > max) max = width;
+    }
+    return max;
+  }
+
+  function renderWindow(force) {
+    if (!view.prep) return;
+    var wrap = $("code-wrap");
+    var height = wrap.clientHeight || 600;
+    var first = Math.max(0, Math.floor((wrap.scrollTop - PAD) / view.lineH) - OVERSCAN);
+    var visible = Math.ceil(height / view.lineH) + OVERSCAN * 2;
+    var last = Math.min(view.prep.lines, first + visible);
+    if (!force && first === view.first && last === view.last) return;
+    view.first = first;
+    view.last = last;
+
+    var nums = new Array(last - first);
+    for (var i = first; i < last; i++) nums[i - first] = i + 1;
+    $("gutter").textContent = nums.join("\n");
+    $("code").firstElementChild.innerHTML =
+      window.LuauHighlight.renderRange(view.text, view.prep, first, last);
+    $("code-window").style.transform = "translateY(" + (PAD + first * view.lineH) + "px)";
+  }
+
+  function onScroll() {
+    if (view.queued) return;
+    view.queued = true;
+    requestAnimationFrame(function () {
+      view.queued = false;
+      renderWindow(false);
+    });
+  }
+
   function showResult(code, info) {
-    var lines = code.split("\n");
-    $("gutter").textContent = lines.map(function (_, i) { return i + 1; }).join("\n");
-    $("code").firstElementChild.innerHTML = window.LuauHighlight(code);
-    show($("code-wrap"), true);
+    measureCell();
+    view.text = code;
+    view.prep = window.LuauHighlight.prepare(code);
+    view.first = view.last = -1;
+
+    var wrap = $("code-wrap");
+    wrap.scrollTop = 0;
+    show(wrap, true);
     show($("empty"), false);
     selectOut("code");
+
+    $("code-sizer").style.height = (view.prep.lines * view.lineH + PAD * 2) + "px";
+    /* the rendered slice is narrower than the whole output, so the scroller
+       gets the full width from the longest line instead of the window */
+    $("code-sizer").style.minWidth =
+      Math.ceil(longestLine(view.prep) * view.charW + 60) + "px";
+    renderWindow(true);
 
     state.result = code;
     $("copy").disabled = $("download").disabled = false;
     $("stats").innerHTML = "";
-    [["obfuscator", info.detected || "—"],
+    [["obfuscator", info.detected || "\u2014"],
      ["in", bytes(info.input_bytes)],
-     ["out", bytes(info.result_bytes) + " · " + lines.length + " lines"],
+     ["out", bytes(info.result_bytes) + " \u00b7 " + view.prep.lines.toLocaleString() + " lines"],
      ["took", (info.elapsed || 0).toFixed(1) + "s"]
     ].forEach(function (pair) {
       var s = document.createElement("span");
@@ -342,7 +433,16 @@
       });
     });
     document.querySelectorAll("[data-out]").forEach(function (btn) {
-      btn.addEventListener("click", function () { selectOut(btn.dataset.out); });
+      btn.addEventListener("click", function () {
+        selectOut(btn.dataset.out);
+        if (btn.dataset.out === "code") renderWindow(true);   // it had no height while hidden
+      });
+    });
+
+    $("code-wrap").addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", function () {
+      measureCell();
+      renderWindow(true);
     });
 
     /* mode */
@@ -448,6 +548,9 @@
       if (state.source) detect();
     });
   }
+
+  /* the result viewer, for tests to drive without running a whole job */
+  window.__show = showResult;
 
   wire();
   selectOut("code");
