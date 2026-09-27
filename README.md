@@ -21,7 +21,7 @@ This repository is the pipeline plus a web front end for it.
 
 ## Use it
 
-**<https://riftwarewtf.github.io/deobf/>** — paste a script, press Deobfuscate,
+**https://daviddevlua.github.io/deobf/** — paste a script, press Deobfuscate,
 read the Luau. Nothing to install and no server: Luau is compiled to
 WebAssembly and the pipeline runs on Python (Pyodide) inside the page. The
 first run downloads about 16 MB, then it is cached.
