@@ -175,12 +175,24 @@ def merge_equivalent(entry, blocks, D):
             # (reprs of IR objects without a formatter carry their address:
             # equal only for the very same object)
             tx = text(b)
+            # one pass, not two: sub visits the matches left to right, so the
+            # callback can number them as it goes. Every match starts with a
+            # "T", so a text without one cannot match at all.
             order = []
-            for mo in _TEMP_RE.finditer(tx):
-                if mo.group(1) not in order:
-                    order.append(mo.group(1))
-            pos = {t: i for i, t in enumerate(order)}
-            texts[bid] = _TEMP_RE.sub(lambda mo: "T#%d" % pos[mo.group(1)], tx)
+            if "T" in tx:
+                pos = {}
+
+                def number(mo, _pos=pos, _order=order):
+                    name = mo.group(1)
+                    i = _pos.get(name)
+                    if i is None:
+                        i = _pos[name] = len(_order)
+                        _order.append(name)
+                    return "T#%d" % i
+
+                texts[bid] = _TEMP_RE.sub(number, tx)
+            else:
+                texts[bid] = tx
             temps[bid] = order
             for s in b.stmts:
                 if isinstance(s, D.CallStmt):

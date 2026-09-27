@@ -2926,6 +2926,7 @@ def main():
         print("%d functions, %d unlifted blocks, %d unstructured jumps, %d constant requests"
               % (stats["functions"], stats["errors"], stats["fallbacks"], len(reqs)))
         print("missing constants:", LAST_DUMP[0].misses if LAST_DUMP else None)
+        backend.report_phases()
         return
     prog = Program(a.source, a.protos, a.chunk)
     if a.op:

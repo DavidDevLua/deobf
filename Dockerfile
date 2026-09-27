@@ -23,6 +23,14 @@ ENV PYTHONUNBUFFERED=1 \
     PORT=8000
 WORKDIR /app
 
+# PyPy runs the lifter roughly a third faster on a big script, and deob.py
+# re-execs under it by itself for inputs over 350 KB - but only if it is on
+# PATH, which it was not in this image, so that gain was never available to
+# the server. Measured on a 947 KB Luraph script: 127s -> 104s end to end,
+# with the constant rounds 51s -> 32s, byte-identical output.
+RUN apt-get update && apt-get install -y --no-install-recommends pypy3 \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY web/requirements.txt web/requirements.txt
 RUN pip install --no-cache-dir -r web/requirements.txt
 

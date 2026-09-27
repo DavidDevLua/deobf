@@ -103,8 +103,14 @@ python deobf/deob.py <script> --debug            # all intermediate files in <in
 - Other options (`--raw FILE`, `--keep-harness`, `--input-text`, `--strings`,
   plugin options, ...): `deob.py --help`.
 - **PyPy**: inputs over `PYPY_MIN_SIZE` (350 KB) re-exec under PyPy (`pypy3`
-  on PATH or winget's `PyPy.PyPy.3.11`). Lifting ~2x faster warm, but JIT
-  warmup costs ~4 s: pays off only on big scripts.
+  on PATH or winget's `PyPy.PyPy.3.11`; the Docker image installs it). Lifting
+  ~2x faster warm, but JIT warmup costs ~4 s: pays off only on big scripts.
+  Measured on a 947 KB Luraph script, Debian's PyPy 7.3 (Python 3.9):
+  127s -> 104s end to end, constant rounds 51s -> 32s, output byte-identical.
+- **`DEVIRT_PHASES=1`**: seconds per lifter phase, summed over every function
+  (`backend.report_phases()`). The way to find which pass a slow lift is in;
+  on that script the backend is 35s of it, more than half in
+  `structure.merge_equivalent` and a third in `codegen.simplify_blocks`.
 - The trace's tidy/fold pass only runs when the trace is written (`--debug`,
   `--no-devirt`, or lifting failed); on a 250k-statement trace it takes
   minutes. `DEOB_PRETIDY=FILE` saves its input.

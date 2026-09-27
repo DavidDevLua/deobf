@@ -101,6 +101,23 @@ class Missing(Expr):
 
 
 def fmt_expr(e):
+    """Text of an expression: the key merge_equivalent compares blocks by.
+
+    Exact-type dispatch first. The chain below is walked for every node of
+    every expression tree, recursively, and that was the single most expensive
+    thing in a big lift. Every class in the table is a direct subclass of Expr
+    - none is a subclass of another - so a table hit gives what the chain
+    would; a subclass or an unknown type misses the table and takes the chain.
+    """
+    if e is None:
+        return "nil"
+    fn = _FMT_EXPR.get(e.__class__)
+    if fn is not None:
+        return fn(e)
+    return _fmt_expr_chain(e)
+
+
+def _fmt_expr_chain(e):
     if e is None:
         return "nil"
     if isinstance(e, Const):
@@ -142,6 +159,31 @@ def fmt_expr(e):
     if isinstance(e, SymList):
         return "pack(%s)" % fmt_multi(Multi(e.items, e.tail))
     return repr(e)
+
+
+# Same formatting as the chain above, one dict lookup instead of up to 19
+# isinstance calls. Keep the two in step when a class is added.
+_FMT_EXPR = {
+    Const: lambda e: fmt_const(e.v),
+    Reg: lambda e: "r%d" % e.n,
+    Pseudo: lambda e: "%s_%d" % (e.name, e.depth),
+    Global: lambda e: e.name,
+    Upval: lambda e: "up%d" % e.idx,
+    Index: lambda e: "%s[%s]" % (fmt_expr(e.obj), fmt_expr(e.key)),
+    Bin: lambda e: "(%s %s %s)" % (fmt_expr(e.a), e.op, fmt_expr(e.b)),
+    Un: lambda e: "(%s %s)" % (e.op, fmt_expr(e.a)),
+    IfExp: lambda e: "(if %s then %s else %s)" % (fmt_expr(e.c), fmt_expr(e.a), fmt_expr(e.b)),
+    TempVal: lambda e: "T%s[%d]" % (e.t, e.i),
+    Vararg: lambda e: "vararg[%d]" % e.i,
+    TailCount: lambda e: "#(%s)" % fmt_tail(e.tail),
+    ClosureExpr: lambda e: "closure(%r, ups=%s)" % (e.proto, [fmt_any(u) for u in e.upvals]),
+    GenIter: lambda e: "geniter(%s)" % fmt_multi(e.args),
+    S.NewTable: lambda e: "{}",
+    Missing: lambda e: "MISSING[%s]" % e.slot,
+    Opaque: lambda e: e.src or ("<%s>" % e.kind),
+    Vec: lambda e: "vector(%s)" % ", ".join(S.fmt_num(x) for x in e.xyz),
+    SymList: lambda e: "pack(%s)" % fmt_multi(Multi(e.items, e.tail)),
+}
 
 
 def fmt_any(v):
