@@ -47,12 +47,26 @@
       else if (m.type === "detected") job.resolve(m.result);
       else if (m.type === "done") job.resolve(m);
     };
-    this.worker.onerror = function (e) {
-      var err = new Error(e.message || "the worker failed to start");
+    /* A worker that runs out of memory dies without an exception - the
+       browser just tears it down. Everything waiting on it has to be failed
+       here, or the page sits there looking busy forever. */
+    function die(message) {
+      var err = new Error(message);
       Object.keys(self_.pending).forEach(function (k) {
         self_.pending[k].reject(err);
         delete self_.pending[k];
       });
+      self_.worker = null;
+      self_.booted = false;
+    }
+
+    this.worker.onerror = function (e) {
+      die(e.message ||
+          "the deobfuscator stopped. A very large script can exhaust the memory a tab " +
+          "is allowed; try Trace only, or run the server (see the engine settings).");
+    };
+    this.worker.onmessageerror = function () {
+      die("the result was too large to hand back to the page");
     };
     return this.worker;
   };

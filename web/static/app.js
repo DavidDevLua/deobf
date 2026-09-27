@@ -311,6 +311,13 @@
   var PAD = 12;             // breathing room above the first line, in px
   var OVERSCAN = 30;        // lines kept rendered beyond the viewport
 
+  /* Above this the result is not drawn at all - it is offered as a download
+     and nothing else. Rendering is windowed and copes with far more than
+     this, but a result that big usually means the run was near the limits of
+     what the tab can hold, and drawing it is the last thing that should get
+     to spend memory. */
+  var MAX_VIEW_LINES = 500;
+
   var view = {
     text: "",
     prep: null,             // line offsets + the state each line starts in
@@ -372,7 +379,52 @@
     });
   }
 
+  function countLines(s) {
+    var n = 1;
+    for (var i = 0; i < s.length; i++) if (s.charCodeAt(i) === 10) n++;
+    return n;
+  }
+
+  /* Too big to draw: the download is the whole interface. */
+  function showTooBig(code, lineCount, info) {
+    view.text = "";
+    view.prep = null;
+    view.first = view.last = -1;
+    /* drop whatever the last result left behind: hiding the pane keeps its
+       nodes, and this path exists to stop holding memory */
+    $("gutter").textContent = "";
+    $("code").firstElementChild.innerHTML = "";
+    show($("code-wrap"), false);
+    show($("empty"), true);
+    selectOut("code");
+
+    $("empty").innerHTML =
+      '<p><strong></strong></p>' +
+      '<p class="muted"></p>' +
+      '<p><button class="primary" id="empty-download" type="button">Download the Luau</button></p>';
+    $("empty").querySelector("strong").textContent =
+      lineCount.toLocaleString() + " lines (" + bytes(code.length) + ") - too big to show here.";
+    $("empty").querySelector(".muted").textContent =
+      "Anything over " + MAX_VIEW_LINES.toLocaleString() + " lines is download-only, so a huge " +
+      "result cannot take the tab down with it. The file is complete and identical to what the " +
+      "viewer would have shown.";
+    $("empty").querySelector("#empty-download").addEventListener("click", downloadResult);
+
+    stats(code, lineCount, info);
+  }
+
   function showResult(code, info) {
+    state.result = code;
+    $("download").disabled = false;
+    $("copy").disabled = true;      // a clipboard write this size is its own hazard
+
+    var lineCount = countLines(code);
+    if (lineCount > MAX_VIEW_LINES) {
+      showTooBig(code, lineCount, info);
+      return;
+    }
+    $("copy").disabled = false;
+
     measureCell();
     view.text = code;
     view.prep = window.LuauHighlight.prepare(code);
@@ -390,13 +442,14 @@
     $("code-sizer").style.minWidth =
       Math.ceil(longestLine(view.prep) * view.charW + 60) + "px";
     renderWindow(true);
+    stats(code, view.prep.lines, info);
+  }
 
-    state.result = code;
-    $("copy").disabled = $("download").disabled = false;
+  function stats(code, lineCount, info) {
     $("stats").innerHTML = "";
     [["obfuscator", info.detected || "\u2014"],
      ["in", bytes(info.input_bytes)],
-     ["out", bytes(info.result_bytes) + " \u00b7 " + view.prep.lines.toLocaleString() + " lines"],
+     ["out", bytes(code.length) + " \u00b7 " + lineCount.toLocaleString() + " lines"],
      ["took", (info.elapsed || 0).toFixed(1) + "s"]
     ].forEach(function (pair) {
       var s = document.createElement("span");
@@ -405,6 +458,14 @@
       $("stats").appendChild(s);
     });
     show($("stats"), true);
+  }
+
+  function downloadResult() {
+    var a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([state.result], { type: "text/plain" }));
+    a.download = (state.name || "script").replace(/\.(lua|luau|txt)$/i, "") + ".deobf.luau";
+    a.click();
+    URL.revokeObjectURL(a.href);
   }
 
   /* ----------------------------------------------------------------- tabs */
@@ -505,13 +566,7 @@
         fail($("submit-error"), "Clipboard blocked — use Download instead.");
       }
     });
-    $("download").addEventListener("click", function () {
-      var a = document.createElement("a");
-      a.href = URL.createObjectURL(new Blob([state.result], { type: "text/plain" }));
-      a.download = (state.name || "script").replace(/\.(lua|luau|txt)$/i, "") + ".deobf.luau";
-      a.click();
-      URL.revokeObjectURL(a.href);
-    });
+    $("download").addEventListener("click", downloadResult);
 
     /* backend panel */
     $("backend-btn").addEventListener("click", function () {

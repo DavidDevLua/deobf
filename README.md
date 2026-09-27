@@ -168,6 +168,10 @@ samples/          test scripts + their expected output
   the tab's WebAssembly sandbox. If you run the server instead, treat it as
   something that runs untrusted code and keep it isolated; the container runs
   as a non-root user. Only feed it scripts you are allowed to inspect.
+- Results over 500 lines are download-only. The viewer draws just the lines on
+  screen and copes with far more, but a result that big means the run was near
+  what a tab can hold, and drawing it is the last thing that should spend
+  memory. The downloaded file is the whole result either way.
 - A trace only contains the branches that actually ran. Devirtualized output
   includes untaken branches; trace output notes conditions in comments.
 - Local names are inferred from use. The original names are not in the
