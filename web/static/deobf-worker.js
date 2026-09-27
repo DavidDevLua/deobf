@@ -43,8 +43,9 @@ function boot() {
     post({ type: "status", text: "starting Python (the slow part, once)" });
     /* the lifter recurses deeply on nested scripts; natively it gets a 256 MB
        thread stack (backend.run_big_stack), which here has to come from the
-       interpreter itself */
-    pyodide = await loadPyodide({ indexURL: "./pyodide/", stackSize: 64 * 1024 * 1024 });
+       interpreter itself. 32 MB is the compromise: enough for the samples,
+       small enough that a phone's tab is not spent before any work starts. */
+    pyodide = await loadPyodide({ indexURL: "./pyodide/", stackSize: 32 * 1024 * 1024 });
 
     /* the pipeline reports progress on stderr */
     pyodide.setStderr({ batched: (line) => post({ type: "log", line }) });

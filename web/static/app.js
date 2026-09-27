@@ -170,8 +170,52 @@
     };
   }
 
+  /* A phone's tab gets a fraction of a desktop's memory. Devirtualizing is
+     what spends it: a 947 KB Luraph script measured 321 MB and two minutes
+     natively, against 87 MB and six seconds for the trace. Over the limit the
+     browser kills the tab outright, with nothing to catch, so the only useful
+     thing is to say so before the run starts. */
+  var HEAVY_BYTES = 250 * 1024;
+
+  function smallDevice() {
+    if (navigator.deviceMemory && navigator.deviceMemory <= 4) return true;
+    var ua = navigator.userAgent;
+    if (/iPhone|iPad|iPod/.test(ua)) return true;
+    return /Android/.test(ua) && /Mobile/.test(ua);
+  }
+
+  function updateWarning() {
+    var el = $("heavy-warning");
+    var devirt = document.querySelector(".seg-btn.active").dataset.mode === "devirt";
+    var browserEngine = state.engine && state.engine.name === "browser";
+    var big = state.source && state.source.length > HEAVY_BYTES;
+
+    if (!devirt || !browserEngine || !(big || (smallDevice() && state.source))) {
+      show(el, false);
+      return;
+    }
+    el.innerHTML = "";
+    var text = document.createElement("span");
+    text.textContent = smallDevice()
+      ? "Devirtualizing needs a few hundred MB and minutes of work. A phone or tablet " +
+        "usually runs out first and the browser closes the tab. Trace only is far lighter " +
+        "and still readable \u2014 or run the deobfuscator on a computer. "
+      : "Devirtualizing a script this size takes minutes here and a few hundred MB. If the " +
+        "tab dies, use Trace only, or point the page at a server. ";
+    var swap = document.createElement("button");
+    swap.type = "button";
+    swap.textContent = "Switch to Trace only";
+    swap.addEventListener("click", function () {
+      document.querySelector('[data-mode="trace"]').click();
+    });
+    el.appendChild(text);
+    el.appendChild(swap);
+    show(el, true);
+  }
+
   function updateRun() {
     $("run").disabled = !(state.source && state.engine && !state.running);
+    updateWarning();
   }
 
   /* ------------------------------------------------------------- the run */
@@ -401,7 +445,8 @@
     $("empty").innerHTML =
       '<p><strong></strong></p>' +
       '<p class="muted"></p>' +
-      '<p><button class="primary" id="empty-download" type="button">Download the Luau</button></p>';
+      '<p><button class="primary" id="empty-download" type="button">Download the Luau</button> ' +
+      '<button class="ghost" id="empty-show" type="button">Show it anyway</button></p>';
     $("empty").querySelector("strong").textContent =
       lineCount.toLocaleString() + " lines (" + bytes(code.length) + ") - too big to show here.";
     $("empty").querySelector(".muted").textContent =
@@ -409,6 +454,9 @@
       "result cannot take the tab down with it. The file is complete and identical to what the " +
       "viewer would have shown.";
     $("empty").querySelector("#empty-download").addEventListener("click", downloadResult);
+    $("empty").querySelector("#empty-show").addEventListener("click", function () {
+      renderInto(code, lineCount, info);      // the viewer only draws what is on screen
+    });
 
     stats(code, lineCount, info);
   }
@@ -424,7 +472,11 @@
       return;
     }
     $("copy").disabled = false;
+    renderInto(code, lineCount, info);
+  }
 
+  function renderInto(code, lineCount, info) {
+    $("copy").disabled = false;
     measureCell();
     view.text = code;
     view.prep = window.LuauHighlight.prepare(code);
@@ -513,6 +565,7 @@
           b.classList.toggle("active", b === btn);
           b.setAttribute("aria-checked", b === btn ? "true" : "false");
         });
+        updateWarning();
       });
     });
 

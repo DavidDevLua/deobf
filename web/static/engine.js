@@ -82,24 +82,22 @@
   };
 
   BrowserEngine.prototype.health = function () {
-    this._start();
-    /* nothing to reach: the engine is the page. The plugin list is fixed, and
-       naming it here avoids booting Pyodide before the first real job. */
+    /* nothing to reach: the engine is the page, and the worker is not started
+       until there is real work - on a phone, those 16 MB are most of what the
+       tab is allowed */
     return Promise.resolve({
       ok: true,
       luau: true,
       advanced: true,
       where: "browser",
-      obfuscators: [
-        { name: "luraph_v15", label: "Luraph v15" },
-        { name: "ironbrew1", label: "ironbrew1" },
-        { name: "generic", label: "unknown obfuscator (behaviour trace only)" }
-      ]
+      obfuscators: window.DeobfDetect.plugins
     });
   };
 
   BrowserEngine.prototype.detect = function (source) {
-    return this._send({ type: "detect", source: source });
+    /* the JS detectors, so labelling the input costs nothing; the run detects
+       again in Python and that is the one that decides */
+    return Promise.resolve(window.DeobfDetect(source));
   };
 
   BrowserEngine.prototype.run = function (source, name, options) {

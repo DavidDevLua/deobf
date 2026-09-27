@@ -1,0 +1,12 @@
+<!doctype html><meta charset=utf-8><body><script>
+window.LOG = []; window.RESULT = null; window.ERR = null; window.STATUS = [];
+window.w = new Worker("deobf-worker.js", {type:"module"});
+window.w.onmessage = function(e){ var m = e.data;
+  if (m.type === "log") LOG.push(m.line);
+  else if (m.type === "status") STATUS.push(m.text);
+  else if (m.type === "done") RESULT = m;
+  else if (m.type === "detected") RESULT = m;
+  else if (m.type === "error") ERR = m.message;
+};
+window.go = function(src, name, opts){ window.w.postMessage({type:"run", id:1, source:src, name:name, options:opts}); };
+</script></body>

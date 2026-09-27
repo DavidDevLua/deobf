@@ -168,7 +168,13 @@ samples/          test scripts + their expected output
   the tab's WebAssembly sandbox. If you run the server instead, treat it as
   something that runs untrusted code and keep it isolated; the container runs
   as a non-root user. Only feed it scripts you are allowed to inspect.
-- Results over 500 lines are download-only. The viewer draws just the lines on
+- **Devirtualizing is heavy.** A 947 KB Luraph script measured 321 MB and two
+  minutes natively; the same script traces in 87 MB and six seconds. A phone
+  tab gets far less than that, so on iOS or Android the browser usually kills
+  the page mid-lift - the page warns before starting such a run and offers
+  Trace only, which is much lighter and still readable. For the full lift on a
+  big script, use a computer, or run the server.
+- Results over 500 lines are download-only (with a "show it anyway" button). The viewer draws just the lines on
   screen and copes with far more, but a result that big means the run was near
   what a tab can hold, and drawing it is the last thing that should spend
   memory. The downloaded file is the whole result either way.

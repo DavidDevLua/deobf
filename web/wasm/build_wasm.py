@@ -149,11 +149,16 @@ def main():
         "-s", "EXPORT_NAME=createLuau",
         "-s", "ENVIRONMENT=web,worker",
         "-s", "ALLOW_MEMORY_GROWTH=1",
-        "-s", "MAXIMUM_MEMORY=4GB",
-        "-s", "INITIAL_MEMORY=64MB",
+        # A phone's tab gets a small fraction of a desktop's memory, and a
+        # large maximum makes Safari reserve accordingly. 1 GB is far more
+        # than running one harness needs - the biggest thing in here is the
+        # captured trace - and it keeps the reservation modest.
+        "-s", "MAXIMUM_MEMORY=1GB",
+        "-s", "INITIAL_MEMORY=32MB",
         # protected scripts nest deeply; the parser and the VM both recurse.
         # TOTAL_STACK is the old spelling; emscripten renamed it STACK_SIZE in
-        # 3.1.27 and still accepts this one.
+        # 3.1.27 and still accepts this one. It is carved out of the initial
+        # memory, so INITIAL_MEMORY has to stay comfortably above it.
         "-s", "TOTAL_STACK=16MB",
         "-s", "EXPORTED_FUNCTIONS=" +
               "['_luauRun','_luauAst','_luauOutput','_luauOutputSize','_luauError','_luauReset',"
