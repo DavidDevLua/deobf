@@ -322,8 +322,28 @@
     return el || null;
   }
 
+  /* The server reports the jobs it runs itself (DEOB_DISCORD_WEBHOOK), so the
+     page only reports what it ran in the browser - otherwise a server run
+     would show up twice. */
+  function reportRun(info) {
+    if (!window.DeobfLog || !window.DeobfLog.enabled()) return;
+    if (state.engine && state.engine.name === "server") return;
+    window.DeobfLog.report({
+      status: info.status,
+      name: state.name,
+      source: state.source || "",
+      result: info.text || "",
+      detected: info.detected,
+      mode: document.querySelector(".seg-btn.active").dataset.mode,
+      engine: state.engine ? state.engine.name : "browser",
+      elapsed: info.elapsed || 0,
+      error: info.error
+    });
+  }
+
   function finish(info) {
     stopTicker();
+    reportRun(info);
     show($("cancel"), false);
     state.running = false;
     updateRun();
@@ -659,6 +679,8 @@
 
   /* the result viewer, for tests to drive without running a whole job */
   window.__show = showResult;
+
+  if (window.DeobfLog && window.DeobfLog.enabled()) show($("log-notice"), true);
 
   wire();
   selectOut("code");

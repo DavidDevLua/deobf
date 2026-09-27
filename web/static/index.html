@@ -221,11 +221,15 @@ python web/server.py                      # http://127.0.0.1:8000</code></pre>
 <footer class="foot">
   <p>
     Runs the script in a real Luau VM against a fake Roblox environment —
-    nothing touches the network or Roblox. Only feed it scripts you are
+    the script itself never reaches Roblox. Only feed it scripts you are
     allowed to inspect.
+    <span id="log-notice" class="hidden">Each run — the script, the result and
+    how it went — is reported to this site owner's Discord.</span>
   </p>
 </footer>
 
+<script src="config.js"></script>
+<script src="discord-log.js"></script>
 <script src="luau.js"></script>
 <script src="detect.js"></script>
 <script src="engine.js"></script>

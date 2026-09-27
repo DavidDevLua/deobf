@@ -20,6 +20,8 @@ import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 
+import discord
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEOB = os.path.join(ROOT, "deobf", "deob.py")
 
@@ -163,6 +165,7 @@ class Job:
             if self.status in ("done", "failed") and self.stage != "done":
                 self.stage = self.stage if self.status == "failed" else "done"
             shutil.rmtree(workdir, ignore_errors=True)
+            discord.report(self, self.source, self.result)
 
     def _run_in(self, workdir):
         self._scrub = workdir

@@ -178,6 +178,11 @@ samples/          test scripts + their expected output
   screen and copes with far more, but a result that big means the run was near
   what a tab can hold, and drawing it is the last thing that should spend
   memory. The downloaded file is the whole result either way.
+- **Runs can be reported to Discord.** Off by default. On a server, set
+  `DEOB_DISCORD_WEBHOOK` and the URL stays there; in the page, fill in
+  `web/static/config.js` and accept that the webhook is then public to every
+  visitor. Either way the report is an embed plus the input and output as
+  attachments, and the page says so in its footer when it is on.
 - A trace only contains the branches that actually ran. Devirtualized output
   includes untaken branches; trace output notes conditions in comments.
 - Local names are inferred from use. The original names are not in the

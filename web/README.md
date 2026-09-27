@@ -47,6 +47,9 @@ All environment variables, all optional:
 | `DEOB_ALLOW_ADVANCED` | `1` | `0` rejects `--cfg` runtime options from the browser |
 | `DEOB_CORS_ORIGINS` | `*` | comma-separated origins; set this if the page is on Pages |
 | `DEOB_LOG` | `info` | uvicorn log level |
+| `DEOB_DISCORD_WEBHOOK` | (unset) | report every finished job to this Discord webhook |
+| `DEOB_DISCORD_MAX_ATTACHMENT` | `3145728` | cap per attached file, bytes |
+| `DEOB_DISCORD_MAX_TOTAL` | `6291456` | cap for all attachments in one report, bytes |
 
 A job's own `--timeout` and `--budget` come from the request and are clamped
 (10–1800 s and 5–900 s). `DEOB_JOB_TIMEOUT` is the outer cap and always wins.
@@ -101,6 +104,27 @@ JOB=$(curl -sF file=@script.lua -F 'options={"no_devirt":true}' \
 curl -N http://localhost:8000/api/jobs/$JOB/events
 curl -s http://localhost:8000/api/jobs/$JOB/result
 ```
+
+## Reporting runs to Discord
+
+With `DEOB_DISCORD_WEBHOOK` set, each finished job is posted to that webhook:
+an embed with the obfuscator, mode, sizes, line counts and how long it took
+(the error instead, when it failed), plus the script that went in and the Luau
+that came out as attachments. It runs on a daemon thread and swallows its own
+failures - a revoked webhook or a rate limit never affects a job.
+
+Set this way the URL stays on the server. The page has an equivalent reporter
+for runs that happen in the browser (`static/discord-log.js`, configured in
+`static/config.js`), but a webhook that the page can use is necessarily public:
+anyone reading the page source can post to that channel or delete the webhook.
+`static/config.js` ships empty for that reason; it explains the options.
+
+To avoid reporting a run twice, the page skips jobs it sent to a server - the
+server reports those itself.
+
+Attachments are capped (`DEOB_DISCORD_MAX_*`) because Discord takes 8 MB per
+request on an unboosted server; anything larger is truncated and the embed says
+so.
 
 ## The page
 

@@ -21,3 +21,6 @@ venv/
 
 # scratch page the browser tests write into web/static/
 web/static/_t.html
+
+# a copy of the page settings holding a real webhook, kept out of the repo
+web/static/config.local.js
